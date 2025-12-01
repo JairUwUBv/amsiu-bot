@@ -4,7 +4,7 @@ const { Client } = require('pg');
 
 // ⚙️ Variables de entorno (Railway)
 const BOT_USERNAME = process.env.BOT_USERNAME || 'Amsius';   // Usuario del bot
-const OAUTH_TOKEN  = process.env.OAUTH_TOKEN  || 'oauth:TOKEN'; 
+const OAUTH_TOKEN  = process.env.OAUTH_TOKEN  || 'oauth:TOKEN';
 const CHANNEL_NAME = process.env.CHANNEL_NAME || 'Neranyel'; // Canal donde funcionará
 const DATABASE_URL = process.env.DATABASE_URL || null;
 
@@ -12,6 +12,9 @@ const DATABASE_URL = process.env.DATABASE_URL || null;
 const memoriaChat = [];
 const LIMITE_MEMORIA = 20000;
 const PATH_MEMORIA = './memoria.json';
+
+// Contador de mensajes de otros usuarios
+let contadorMensajes = 0;
 
 // --- Base de datos PostgreSQL ---
 let dbClient = null;
@@ -124,9 +127,14 @@ function guardarMensaje(msg) {
   }
 }
 
+// 🧠 Lógica de aprendizaje con tus reglas
 function aprender(msg, lower, botLower) {
   if (msg.length < 2) return;
+
+  // ❌ No aprender comandos que empiezan con "!"
   if (msg.startsWith('!')) return;
+
+  // ❌ No aprender mensajes que mencionen al bot (@Amsius)
   if (lower.includes('@' + botLower)) return;
 
   guardarMensaje(msg);
@@ -157,24 +165,34 @@ client.connect();
 client.on('message', (channel, tags, message, self) => {
   if (self) return;
 
+  // ❌ Ignorar mensajes de otros bots
   const username = (tags.username || '').toLowerCase();
-  const botsIgnorados = ['nightbot', 'streamelements'];
+  const botsIgnorados = ['nightbot', 'streamelements', 'tangiabot'];
   if (botsIgnorados.includes(username)) return;
 
   const msg = message.trim();
   const lower = msg.toLowerCase();
   const botLower = BOT_USERNAME.toLowerCase();
 
+  // Contar mensajes de usuarios (no bots, no el bot mismo)
+  contadorMensajes++;
+
+  // Aprender con filtros
   aprender(msg, lower, botLower);
 
+  // Si mencionan al bot → responde con algo aprendido inmediatamente
   if (lower.includes('@' + botLower)) {
     const frase = fraseAprendida();
     if (frase) client.say(channel, frase);
     return;
   }
 
-  if (Math.random() < 0.15 && memoriaChat.length > 0) {
+  // 📌 Modo nuevo: cada 15 mensajes manda algo aprendido
+  if (contadorMensajes >= 15) {
     const frase = fraseAprendida();
-    client.say(channel, frase);
+    if (frase) {
+      client.say(channel, frase);
+    }
+    contadorMensajes = 0; // reiniciar contador
   }
 });
