@@ -16,6 +16,9 @@ const PATH_MEMORIA = './memoria.json';
 // Contador de mensajes de otros usuarios
 let contadorMensajes = 0;
 
+// Historial de últimos mensajes que el bot ha dicho (anti-repetición)
+let ultimosMensajesBot = []; // guarda últimos 5 mensajes enviados por el bot
+
 // --- Base de datos PostgreSQL ---
 let dbClient = null;
 let usaDB = false;
@@ -140,10 +143,26 @@ function aprender(msg, lower, botLower) {
   guardarMensaje(msg);
 }
 
+// 🧠 Seleccionar una frase aprendida evitando repeticiones recientes
 function fraseAprendida() {
   if (memoriaChat.length === 0) return null;
-  const idx = Math.floor(Math.random() * memoriaChat.length);
-  return memoriaChat[idx];
+
+  // Filtrar mensajes que NO estén en los últimos 5 enviados
+  const disponibles = memoriaChat.filter(msg => !ultimosMensajesBot.includes(msg));
+
+  // Si no hay suficientes, usar toda la memoria
+  const lista = disponibles.length > 0 ? disponibles : memoriaChat;
+
+  const idx = Math.floor(Math.random() * lista.length);
+  const frase = lista[idx];
+
+  // Guardar la frase en el historial anti-repetición
+  ultimosMensajesBot.push(frase);
+  if (ultimosMensajesBot.length > 5) {
+    ultimosMensajesBot.shift(); // mantener tamaño máximo 5
+  }
+
+  return frase;
 }
 
 // Inicializar DB / memoria
@@ -187,7 +206,7 @@ client.on('message', (channel, tags, message, self) => {
     return;
   }
 
-  // 📌 Modo nuevo: cada 15 mensajes manda algo aprendido
+  // 📌 Modo contador: cada 15 mensajes manda algo aprendido
   if (contadorMensajes >= 15) {
     const frase = fraseAprendida();
     if (frase) {
