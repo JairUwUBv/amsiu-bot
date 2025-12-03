@@ -207,7 +207,7 @@ client.on('message', (channel, tags, message, self) => {
   }
 
   // 📌 Modo contador: cada 15 mensajes manda algo aprendido
-  if (contadorMensajes >= 15) {
+  if (contadorMensajes >= 25) {
     const frase = fraseAprendida();
     if (frase) {
       client.say(channel, frase);
