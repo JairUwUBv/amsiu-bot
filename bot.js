@@ -3,9 +3,9 @@ const tmi = require('tmi.js');
 const { Client } = require('pg');
 
 // ⚙️ Variables de entorno (Railway)
-const BOT_USERNAME = process.env.BOT_USERNAME || 'Amsius';   // Usuario del bot
+const BOT_USERNAME = process.env.BOT_USERNAME || 'Amsius';
 const OAUTH_TOKEN  = process.env.OAUTH_TOKEN  || 'oauth:TOKEN';
-const CHANNEL_NAME = process.env.CHANNEL_NAME || 'Neranyel'; // Canal donde funcionará
+const CHANNEL_NAME = process.env.CHANNEL_NAME || 'Neranyel';
 const DATABASE_URL = process.env.DATABASE_URL || null;
 
 // --- Memoria del bot en RAM ---
@@ -17,7 +17,13 @@ const PATH_MEMORIA = './memoria.json';
 let contadorMensajes = 0;
 
 // Historial de últimos mensajes que el bot ha dicho (anti-repetición)
-let ultimosMensajesBot = []; // guarda últimos 5 mensajes enviados por el bot
+let ultimosMensajesBot = []; // últimos 5 mensajes enviados
+
+// Detectar si un mensaje contiene un enlace
+function contieneLink(texto) {
+  const regex = /(https?:\/\/|www\.)/i;
+  return regex.test(texto);
+}
 
 // --- Base de datos PostgreSQL ---
 let dbClient = null;
@@ -137,21 +143,31 @@ function aprender(msg, lower, botLower) {
   // ❌ No aprender comandos que empiezan con "!"
   if (msg.startsWith('!')) return;
 
-  // ❌ No aprender mensajes que mencionen al bot (@Amsius)
+  // ❌ No aprender mensajes que mencionen al bot
   if (lower.includes('@' + botLower)) return;
+
+  // ❌ No aprender mensajes con links
+  if (contieneLink(msg)) return;
 
   guardarMensaje(msg);
 }
 
-// 🧠 Seleccionar una frase aprendida evitando repeticiones recientes
+// 🧠 Seleccionar una frase aprendida evitando repeticiones y links
 function fraseAprendida() {
   if (memoriaChat.length === 0) return null;
 
-  // Filtrar mensajes que NO estén en los últimos 5 enviados
-  const disponibles = memoriaChat.filter(msg => !ultimosMensajesBot.includes(msg));
+  // Filtrar mensajes que NO estén en los últimos 5 y NO tengan links
+  const disponibles = memoriaChat.filter(msg =>
+    !ultimosMensajesBot.includes(msg) &&
+    !contieneLink(msg)
+  );
 
-  // Si no hay suficientes, usar toda la memoria
-  const lista = disponibles.length > 0 ? disponibles : memoriaChat;
+  // Si no hay suficientes, usar toda la memoria sin links
+  const lista = disponibles.length > 0
+    ? disponibles
+    : memoriaChat.filter(msg => !contieneLink(msg));
+
+  if (lista.length === 0) return null;
 
   const idx = Math.floor(Math.random() * lista.length);
   const frase = lista[idx];
@@ -184,7 +200,7 @@ client.connect();
 client.on('message', (channel, tags, message, self) => {
   if (self) return;
 
-  // ❌ Ignorar mensajes de otros bots
+  // ❌ Ignorar mensajes de bots
   const username = (tags.username || '').toLowerCase();
   const botsIgnorados = ['nightbot', 'streamelements', 'tangiabot'];
   if (botsIgnorados.includes(username)) return;
@@ -193,25 +209,27 @@ client.on('message', (channel, tags, message, self) => {
   const lower = msg.toLowerCase();
   const botLower = BOT_USERNAME.toLowerCase();
 
-  // Contar mensajes de usuarios (no bots, no el bot mismo)
+  // Contar mensajes de usuarios
   contadorMensajes++;
 
   // Aprender con filtros
   aprender(msg, lower, botLower);
 
-  // Si mencionan al bot → responde con algo aprendido inmediatamente
+  // Responder si lo mencionan
   if (lower.includes('@' + botLower)) {
-    const frase = fraseAprendida();
-    if (frase) client.say(channel, frase);
-    return;
-  }
-
-  // 📌 Modo contador: cada 15 mensajes manda algo aprendido
-  if (contadorMensajes >= 25) {
     const frase = fraseAprendida();
     if (frase) {
       client.say(channel, frase);
     }
-    contadorMensajes = 0; // reiniciar contador
+    return;
+  }
+
+  // 📌 Cada 15 mensajes → responder
+  if (contadorMensajes >= 20) {
+    const frase = fraseAprendida();
+    if (frase) {
+      client.say(channel, frase);
+    }
+    contadorMensajes = 0;
   }
 });
