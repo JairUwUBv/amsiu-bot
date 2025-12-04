@@ -8,10 +8,13 @@ const OAUTH_TOKEN  = process.env.OAUTH_TOKEN  || 'oauth:TOKEN';
 const CHANNEL_NAME = process.env.CHANNEL_NAME || 'Neranyel';
 const DATABASE_URL = process.env.DATABASE_URL || null;
 
+// --- Configuración de filtros ---
+const LIMITE_MEMORIA = 20000;        // Máximo de mensajes en memoria
+const MAX_MSG_LENGTH = 160;          // ⬅️ Máxima longitud de mensaje que aprende/usa
+const PATH_MEMORIA   = './memoria.json';
+
 // --- Memoria del bot en RAM ---
 const memoriaChat = [];
-const LIMITE_MEMORIA = 20000;
-const PATH_MEMORIA = './memoria.json';
 
 // Contador de mensajes de otros usuarios
 let contadorMensajes = 0;
@@ -138,7 +141,11 @@ function guardarMensaje(msg) {
 
 // 🧠 Lógica de aprendizaje con tus reglas
 function aprender(msg, lower, botLower) {
+  // ❌ Muy cortos
   if (msg.length < 2) return;
+
+  // ❌ Muy largos
+  if (msg.length > MAX_MSG_LENGTH) return;
 
   // ❌ No aprender comandos que empiezan con "!"
   if (msg.startsWith('!')) return;
@@ -152,20 +159,27 @@ function aprender(msg, lower, botLower) {
   guardarMensaje(msg);
 }
 
-// 🧠 Seleccionar una frase aprendida evitando repeticiones y links
+// 🧠 Seleccionar una frase aprendida evitando repeticiones, links y tocho texto
 function fraseAprendida() {
   if (memoriaChat.length === 0) return null;
 
-  // Filtrar mensajes que NO estén en los últimos 5 y NO tengan links
+  // Filtrar mensajes que:
+  // - NO estén entre los últimos 5 ya dichos
+  // - NO tengan links
+  // - NO sean demasiado largos
   const disponibles = memoriaChat.filter(msg =>
     !ultimosMensajesBot.includes(msg) &&
-    !contieneLink(msg)
+    !contieneLink(msg) &&
+    msg.length <= MAX_MSG_LENGTH
   );
 
-  // Si no hay suficientes, usar toda la memoria sin links
+  // Si no hay suficientes, usar toda la memoria pero igual filtrando links y longitud
   const lista = disponibles.length > 0
     ? disponibles
-    : memoriaChat.filter(msg => !contieneLink(msg));
+    : memoriaChat.filter(msg =>
+        !contieneLink(msg) &&
+        msg.length <= MAX_MSG_LENGTH
+      );
 
   if (lista.length === 0) return null;
 
