@@ -10,17 +10,17 @@ const DATABASE_URL = process.env.DATABASE_URL || null;
 
 // --- Configuración de filtros ---
 const LIMITE_MEMORIA = 20000;        // Máximo de mensajes en memoria
-const MAX_MSG_LENGTH = 160;          // ⬅️ Máxima longitud de mensaje que aprende/usa
+const MAX_MSG_LENGTH = 160;          // Máxima longitud de mensaje que aprende/usa
 const PATH_MEMORIA   = './memoria.json';
 
 // --- Memoria del bot en RAM ---
 const memoriaChat = [];
 
-// Contador de mensajes de otros usuarios
+// Contador de mensajes de otros usuarios (para hablar cada X mensajes)
 let contadorMensajes = 0;
 
-// Historial de últimos mensajes que el bot ha dicho (anti-repetición)
-let ultimosMensajesBot = []; // últimos 5 mensajes enviados
+// Últimos mensajes enviados por el bot (cooldown de repetición)
+let ultimosMensajesBot = []; // guardamos los últimos 5 mensajes que él dijo
 
 // Detectar si un mensaje contiene un enlace
 function contieneLink(texto) {
@@ -139,57 +139,45 @@ function guardarMensaje(msg) {
   }
 }
 
-// 🧠 Lógica de aprendizaje con tus reglas
+// 🧠 Aprender con tus reglas
 function aprender(msg, lower, botLower) {
-  // ❌ Muy cortos
-  if (msg.length < 2) return;
-
-  // ❌ Muy largos
-  if (msg.length > MAX_MSG_LENGTH) return;
-
-  // ❌ No aprender comandos que empiezan con "!"
-  if (msg.startsWith('!')) return;
-
-  // ❌ No aprender mensajes que mencionen al bot
-  if (lower.includes('@' + botLower)) return;
-
-  // ❌ No aprender mensajes con links
-  if (contieneLink(msg)) return;
+  if (msg.length < 2) return;                 // Muy cortos
+  if (msg.length > MAX_MSG_LENGTH) return;    // Muy largos
+  if (msg.startsWith('!')) return;            // Comandos
+  if (lower.includes('@' + botLower)) return; // Menciones al bot
+  if (contieneLink(msg)) return;             // Links
 
   guardarMensaje(msg);
 }
 
-// 🧠 Seleccionar una frase aprendida evitando repeticiones, links y tocho texto
+// 🧠 Elegir una frase evitando repetir las últimas 5 que dijo el bot
 function fraseAprendida() {
   if (memoriaChat.length === 0) return null;
 
-  // Filtrar mensajes que:
-  // - NO estén entre los últimos 5 ya dichos
-  // - NO tengan links
-  // - NO sean demasiado largos
-  const disponibles = memoriaChat.filter(msg =>
-    !ultimosMensajesBot.includes(msg) &&
+  // Mensajes válidos que NO estén entre los últimos 5 que dijo el bot
+  let disponibles = memoriaChat.filter(msg =>
     !contieneLink(msg) &&
-    msg.length <= MAX_MSG_LENGTH
+    msg.length <= MAX_MSG_LENGTH &&
+    !ultimosMensajesBot.includes(msg)
   );
 
-  // Si no hay suficientes, usar toda la memoria pero igual filtrando links y longitud
-  const lista = disponibles.length > 0
-    ? disponibles
-    : memoriaChat.filter(msg =>
-        !contieneLink(msg) &&
-        msg.length <= MAX_MSG_LENGTH
-      );
+  // Si no hay opciones, relajar un poco (pero seguir evitando links y tochos)
+  if (disponibles.length === 0) {
+    disponibles = memoriaChat.filter(msg =>
+      !contieneLink(msg) &&
+      msg.length <= MAX_MSG_LENGTH
+    );
+  }
 
-  if (lista.length === 0) return null;
+  if (disponibles.length === 0) return null;
 
-  const idx = Math.floor(Math.random() * lista.length);
-  const frase = lista[idx];
+  const idx = Math.floor(Math.random() * disponibles.length);
+  const frase = disponibles[idx];
 
-  // Guardar la frase en el historial anti-repetición
+  // Guardar en el historial de últimos mensajes del bot (cooldown de 5)
   ultimosMensajesBot.push(frase);
   if (ultimosMensajesBot.length > 5) {
-    ultimosMensajesBot.shift(); // mantener tamaño máximo 5
+    ultimosMensajesBot.shift(); // solo mantenemos los 5 últimos que él dijo
   }
 
   return frase;
@@ -198,7 +186,7 @@ function fraseAprendida() {
 // Inicializar DB / memoria
 initDB();
 
-// 🧠 Cliente del bot
+// Cliente del bot
 const client = new tmi.Client({
   identity: {
     username: BOT_USERNAME,
@@ -210,11 +198,11 @@ const client = new tmi.Client({
 
 client.connect();
 
-// 🗨️ Evento de mensaje
+// Evento de mensaje
 client.on('message', (channel, tags, message, self) => {
   if (self) return;
 
-  // ❌ Ignorar mensajes de bots
+  // Ignorar otros bots
   const username = (tags.username || '').toLowerCase();
   const botsIgnorados = ['nightbot', 'streamelements', 'tangiabot'];
   if (botsIgnorados.includes(username)) return;
@@ -226,19 +214,17 @@ client.on('message', (channel, tags, message, self) => {
   // Contar mensajes de usuarios
   contadorMensajes++;
 
-  // Aprender con filtros
+  // Aprender del mensaje
   aprender(msg, lower, botLower);
 
-  // Responder si lo mencionan
+  // Si lo mencionan → responder ya
   if (lower.includes('@' + botLower)) {
     const frase = fraseAprendida();
-    if (frase) {
-      client.say(channel, frase);
-    }
+    if (frase) client.say(channel, frase);
     return;
   }
 
-  // 📌 Cada 15 mensajes → responder
+  // Cada 15 mensajes de usuarios → responder con algo aprendido
   if (contadorMensajes >= 20) {
     const frase = fraseAprendida();
     if (frase) {
